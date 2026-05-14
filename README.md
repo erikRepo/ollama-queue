@@ -74,20 +74,34 @@ flowchart TD
 ### 2. Poll Status (Alternative Return Channel)
 `GET /api/status/:job_id`
 
+All responses return the full job object (same shape as `POST /api/queue`).
+
 **Response (While pending or processing):**
 ```json
 {
   "id": "8f3b9c2a-1234-4567-abcd-ef7412589630",
-  "status": "pending"
+  "status": "pending",
+  "priority": "low",
+  "model": "llama3.1",
+  "messages": [...],
+  "format": "json",
+  "callback_url": null,
+  "response": null,
+  "error": null,
+  "retry_count": 0,
+  "created_at": "2026-05-14T10:00:00+00:00",
+  "updated_at": "2026-05-14T10:00:00+00:00"
 }
 ```
 
 **Response (When result is ready — first poll):**
+The record is atomically transitioned to `closed` in the database, but this response is returned with `status: "ready"` so the client sees the result exactly once:
 ```json
 {
   "id": "8f3b9c2a-1234-4567-abcd-ef7412589630",
   "status": "ready",
-  "response": "Here is the completed AI analysis..."
+  "response": "Here is the completed AI analysis...",
+  ...
 }
 ```
 
@@ -96,7 +110,8 @@ flowchart TD
 {
   "id": "8f3b9c2a-1234-4567-abcd-ef7412589630",
   "status": "closed",
-  "response": "Here is the completed AI analysis..."
+  "response": "Here is the completed AI analysis...",
+  ...
 }
 ```
 
@@ -144,7 +159,7 @@ Configure the application via environment variables or a `.env` file:
 
 ```env
 HOST=0.0.0.0
-PORT=8080
+PORT=11430
 DATABASE_URL=sqlite:///./ollama_queue.db
 
 OLLAMA_HOST=http://192.168.1.50:11434   # full base URL of the Ollama server
@@ -186,7 +201,6 @@ result = client.generate(
     ],
     priority="low",       # "high" or "low"
     format="json",        # optional: forces Ollama to return valid JSON
-    poll_interval=5,      # seconds between status polls (default: 5)
     timeout=600,          # max seconds to wait (default: 600)
 )
 
@@ -196,10 +210,10 @@ print(result)  # string — JSON or plain text depending on 'format'
 `generate()` blocks until the job status is `ready` or `closed` and returns the LLM response as a string. Raises `TimeoutError` if the job does not complete within `timeout` seconds.
 
 ### Notes
-- No threading — one blocking call per `generate()` invocation
+- Webhook-based — `generate()` binds a temporary HTTP listener on a random local port, passes it as `callback_url`, and blocks until the server pushes the result back
+- Uses a background daemon thread to run the temporary HTTP listener; the caller's thread blocks on `threading.Event.wait(timeout)`
 - `messages` follows the standard chat format (`role` + `content`) so system prompts and multi-turn context are supported
 - `format="json"` passes Ollama's format option through — useful when the response must be machine-parseable
-- `callback_url` is not used by the client library; it relies solely on polling
 
 ## 📝 License
 
