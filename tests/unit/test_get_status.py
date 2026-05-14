@@ -49,6 +49,7 @@ class TestGetStatus:
         assert body["model"] == "llama3"
         assert body["prompt"] == "hi"
         assert body["status"] == "pending"
+        assert body["priority"] == "low"
         assert body["retry_count"] == 0
         assert body["response"] is None
         assert body["error"] is None

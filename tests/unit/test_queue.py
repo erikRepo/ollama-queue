@@ -3,7 +3,7 @@
 import sqlite3
 
 from server.database import _migrate
-from server.models import JobRequest, JobResponse, JobStatus
+from server.models import JobPriority, JobRequest, JobResponse, JobStatus
 from server.queue import get_by_id, insert, list_pending, update_status
 
 
@@ -16,6 +16,8 @@ def _mem() -> sqlite3.Connection:
 
 
 _REQUEST = JobRequest(model="llama3", prompt="hello")
+_HIGH = JobRequest(model="llama3", prompt="urgent", priority=JobPriority.HIGH)
+_LOW = JobRequest(model="llama3", prompt="batch", priority=JobPriority.LOW)
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +56,18 @@ class TestInsert:
         conn = _mem()
         job = insert(conn, _REQUEST)
         assert job.retry_count == 0
+        conn.close()
+
+    def test_default_priority_is_low(self) -> None:
+        conn = _mem()
+        job = insert(conn, _REQUEST)
+        assert job.priority == JobPriority.LOW
+        conn.close()
+
+    def test_high_priority_stored(self) -> None:
+        conn = _mem()
+        job = insert(conn, _HIGH)
+        assert job.priority == JobPriority.HIGH
         conn.close()
 
     def test_id_is_unique(self) -> None:
@@ -138,6 +152,15 @@ class TestListPending:
         pending = list_pending(conn)
         ids = [j.id for j in pending]
         assert ids.index(a.id) < ids.index(b.id)
+        conn.close()
+
+    def test_high_priority_before_low(self) -> None:
+        conn = _mem()
+        low = insert(conn, _LOW)
+        high = insert(conn, _HIGH)
+        pending = list_pending(conn)
+        ids = [j.id for j in pending]
+        assert ids.index(high.id) < ids.index(low.id)
         conn.close()
 
 

@@ -70,6 +70,7 @@ class TestMigrate:
         expected = {
             "id",
             "status",
+            "priority",
             "model",
             "prompt",
             "response",

@@ -14,11 +14,19 @@ class JobStatus(StrEnum):
     FAILED = "failed"
 
 
+class JobPriority(StrEnum):
+    """Job scheduling priority."""
+
+    HIGH = "high"
+    LOW = "low"
+
+
 class JobRequest(BaseModel):
     """Body for POST /api/queue."""
 
     model: str
     prompt: str
+    priority: JobPriority = JobPriority.LOW
 
     @field_validator("model", "prompt")
     @classmethod
@@ -34,6 +42,7 @@ class JobResponse(BaseModel):
 
     id: str
     status: JobStatus
+    priority: JobPriority
     model: str
     prompt: str
     response: str | None

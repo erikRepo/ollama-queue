@@ -34,6 +34,7 @@ def _job(**overrides) -> JobResponse:
     base = dict(
         id="test-job-1",
         status=JobStatus.PENDING,
+        priority="low",
         model="llama3",
         prompt="Hello, world!",
         response=None,

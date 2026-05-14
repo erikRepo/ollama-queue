@@ -55,6 +55,7 @@ class TestJobResponse:
     _BASE = {
         "id": "abc-123",
         "status": "pending",
+        "priority": "low",
         "model": "llama3",
         "prompt": "Hello",
         "response": None,

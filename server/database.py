@@ -7,7 +7,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION: int = 1
+CURRENT_VERSION: int = 2
 
 
 def get_db_path(database_url: str) -> Path:
@@ -51,6 +51,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.commit()
         logger.info("Applied database migration to version 1")
 
+    if version < 2:
+        _v2(conn)
+        conn.execute("PRAGMA user_version = 2")
+        conn.commit()
+        logger.info("Applied database migration to version 2")
+
 
 def _v1(conn: sqlite3.Connection) -> None:
     """Initial schema: jobs table and status index."""
@@ -70,6 +76,12 @@ def _v1(conn: sqlite3.Connection) -> None:
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs (status)")
+
+
+def _v2(conn: sqlite3.Connection) -> None:
+    """Migration v2: add priority column (default 'low') to jobs table."""
+    conn.execute("ALTER TABLE jobs ADD COLUMN priority TEXT NOT NULL DEFAULT 'low'")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_priority ON jobs (priority)")
 
 
 def get_db() -> Generator[sqlite3.Connection, None, None]:

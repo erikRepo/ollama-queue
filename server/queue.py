@@ -5,7 +5,7 @@ import sqlite3
 import uuid
 from datetime import UTC, datetime
 
-from server.models import JobRequest, JobResponse, JobStatus
+from server.models import JobPriority, JobRequest, JobResponse, JobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ def _row_to_job(row: sqlite3.Row) -> JobResponse:
     return JobResponse(
         id=row["id"],
         status=JobStatus(row["status"]),
+        priority=JobPriority(row["priority"]),
         model=row["model"],
         prompt=row["prompt"],
         response=row["response"],
@@ -44,11 +45,19 @@ def insert(conn: sqlite3.Connection, request: JobRequest) -> JobResponse:
     now = _now()
     conn.execute(
         """
-        INSERT INTO jobs (id, status, model, prompt, response, error, retry_count,
-                          created_at, updated_at)
-        VALUES (?, ?, ?, ?, NULL, NULL, 0, ?, ?)
+        INSERT INTO jobs (id, status, priority, model, prompt, response, error,
+                          retry_count, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, NULL, NULL, 0, ?, ?)
         """,
-        (job_id, JobStatus.PENDING, request.model, request.prompt, now, now),
+        (
+            job_id,
+            JobStatus.PENDING,
+            request.priority,
+            request.model,
+            request.prompt,
+            now,
+            now,
+        ),
     )
     conn.commit()
     logger.info("Job queued: %s model=%s", job_id, request.model)
@@ -80,7 +89,10 @@ def list_pending(conn: sqlite3.Connection) -> list[JobResponse]:
         List of pending JobResponse objects, oldest first.
     """
     rows = conn.execute(
-        "SELECT * FROM jobs WHERE status = ? ORDER BY created_at ASC",
+        """
+        SELECT * FROM jobs WHERE status = ?
+        ORDER BY CASE priority WHEN 'high' THEN 0 ELSE 1 END, created_at ASC
+        """,
         (JobStatus.PENDING,),
     ).fetchall()
     return [_row_to_job(row) for row in rows]

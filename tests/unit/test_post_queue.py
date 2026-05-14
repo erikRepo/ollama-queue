@@ -62,6 +62,20 @@ class TestPostQueue:
         assert body["retry_count"] == 0
         assert body["response"] is None
         assert body["error"] is None
+        assert body["priority"] == "low"
+
+    def test_high_priority_accepted(self, client: TestClient) -> None:
+        resp = client.post(
+            "/api/queue", json={"model": "llama3", "prompt": "hi", "priority": "high"}
+        )
+        assert resp.status_code == 201
+        assert resp.json()["priority"] == "high"
+
+    def test_invalid_priority_returns_422(self, client: TestClient) -> None:
+        resp = client.post(
+            "/api/queue", json={"model": "llama3", "prompt": "hi", "priority": "urgent"}
+        )
+        assert resp.status_code == 422
 
     def test_blank_model_returns_422(self, client: TestClient) -> None:
         resp = client.post("/api/queue", json={"model": "  ", "prompt": "hi"})

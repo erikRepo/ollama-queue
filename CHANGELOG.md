@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.0] - 2026-05-14
+
+### Added
+- `JobPriority` enum (`high`/`low`) in `server/models.py`
+- `priority` field on `JobRequest` (default `low`) and `JobResponse`
+- DB migration v2: `ALTER TABLE jobs ADD COLUMN priority TEXT NOT NULL DEFAULT 'low'` with index
+- `queue.insert()` stores priority; `queue.list_pending()` orders high-priority jobs first, then by `created_at ASC`
+- New unit tests: priority stored on insert, high/low ordering in `list_pending`, endpoint tests for priority field, invalid priority rejected with 422
+
 ## [0.8.0] - 2026-05-14
 
 ### Added
