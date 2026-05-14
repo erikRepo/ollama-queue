@@ -1,4 +1,30 @@
-"""E2E tests: full flow with temp SQLite and mocked Ollama HTTP."""
+"""
+E2E tests for the complete server flow.
+
+Infrastructure
+--------------
+Each test starts the full FastAPI app via its real lifespan hook (DB init +
+background worker task). A fresh SQLite database is created in pytest's
+tmp_path for every test. Ollama HTTP calls are intercepted by patching
+``urllib.request.urlopen`` at the module level; because the worker runs in the
+event loop thread (separate from the test thread), the patch is visible to it
+as long as it is active before the job is enqueued.
+
+WoL is disabled in all tests (``wol_mac_address=""``). The WoL + Ollama
+health-check path is covered exhaustively in ``tests/unit/test_worker.py``.
+
+Scenarios covered
+-----------------
+- Low-priority batch flow: POST → pending → worker picks up on timer → ready
+- High-priority wakeup: POST high → asyncio.Event set → worker wakes immediately
+- READY → CLOSED transition: first GET returns ready; subsequent GET returns
+  closed (response preserved)
+- Multiple jobs: two jobs enqueued in the same batch, both reach ready
+- Transient retry: Ollama fails once; job is retried and reaches ready on the
+  second attempt (retry_count verified)
+- Permanent failure: Ollama always fails; job reaches failed after
+  worker_max_retries (3) attempts
+"""
 
 import json
 import time

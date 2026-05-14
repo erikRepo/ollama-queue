@@ -23,7 +23,7 @@ pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-The server reads settings from `.env` automatically on startup (via `python-dotenv` — no export needed).
+The server reads settings from `.env` automatically on startup (no `export` needed).
 
 ## Running the tests
 
@@ -76,7 +76,9 @@ All settings can be set via environment variables or in `.env`:
 | `DATABASE_URL` | `sqlite:///./ollama_queue.db` | SQLite file path |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama base URL |
 | `OLLAMA_TIMEOUT` | `300` | Seconds to wait for an Ollama response |
-| `WORKER_POLL_INTERVAL` | `2.0` | Seconds between queue polls |
+| `OLLAMA_CONCURRENCY` | `1` | Max parallel Ollama requests (1 = sequential) |
+| `WORKER_BATCH_INTERVAL` | `2.0` | Low-priority batch window (seconds) |
+| `WORKER_WOL_TIMEOUT` | `300` | Max seconds to wait for Ollama after WoL |
 | `WORKER_MAX_RETRIES` | `3` | Retry limit per job |
 | `WORKER_RETRY_DELAY` | `5.0` | Seconds between retries |
 | `WOL_MAC_ADDRESS` | _(empty)_ | Target MAC — leave blank to disable WoL |
