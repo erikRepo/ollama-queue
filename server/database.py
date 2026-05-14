@@ -1,0 +1,71 @@
+"""SQLite connection management, schema creation, and startup migrations."""
+
+import logging
+import sqlite3
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+CURRENT_VERSION: int = 1
+
+
+def get_db_path(database_url: str) -> Path:
+    """Extract the filesystem path from a ``sqlite:///`` URL.
+
+    Raises ValueError if the URL does not start with ``sqlite:///``.
+    """
+    prefix = "sqlite:///"
+    if not database_url.startswith(prefix):
+        raise ValueError(f"Unsupported database URL: {database_url!r}")
+    return Path(database_url[len(prefix) :])
+
+
+def get_connection(db_path: Path) -> sqlite3.Connection:
+    """Open a SQLite connection with WAL journal mode and Row factory."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+def init_db(db_path: Path) -> None:
+    """Create the database file (and parent dirs) then run pending migrations."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = get_connection(db_path)
+    try:
+        _migrate(conn)
+    finally:
+        conn.close()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Apply schema migrations using ``PRAGMA user_version`` as version tracker."""
+    version: int = conn.execute("PRAGMA user_version").fetchone()[0]
+    logger.debug("Database schema version on open: %d", version)
+
+    if version < 1:
+        _v1(conn)
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
+        logger.info("Applied database migration to version 1")
+
+
+def _v1(conn: sqlite3.Connection) -> None:
+    """Initial schema: jobs table and status index."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS jobs (
+            id          TEXT PRIMARY KEY,
+            status      TEXT NOT NULL DEFAULT 'pending',
+            model       TEXT NOT NULL,
+            prompt      TEXT NOT NULL,
+            response    TEXT,
+            error       TEXT,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs (status)")
