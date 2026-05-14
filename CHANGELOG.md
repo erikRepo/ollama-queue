@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.0] - 2026-05-14
+
+### Added
+- `server/main.py`: FastAPI app entry point; configures logging, runs `init_db` in the lifespan, mounts router at `/api`
+- `server/router.py`: `POST /api/queue` endpoint — validates request body via `JobRequest`, inserts a job, returns `JobResponse` with HTTP 201
+- `server/database.py`: `get_db` FastAPI dependency (yields a per-request `sqlite3.Connection`); added `check_same_thread=False` to `get_connection` for threadpool compatibility
+- `pyproject.toml`: added `fastapi>=0.110`, `uvicorn[standard]>=0.29` runtime deps; `httpx>=0.27` dev dep
+- `tests/unit/test_post_queue.py`: 10 unit tests covering 201 response shape, field defaults, and 422 validation for blank/missing fields; uses in-memory SQLite via dependency override
+
 ## [0.5.0] - 2026-05-14
 
 ### Added

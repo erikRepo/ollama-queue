@@ -16,7 +16,7 @@ Each item below is one session. After completing an item, in this exact order:
 - [x] 3. `database.py` — SQLite connection, schema creation, migration on startup
 - [x] 4. `models.py` — Pydantic request/response models and job status enum
 - [x] 5. `queue.py` — Job CRUD: insert, get by id, list pending, update status
-- [ ] 6. `POST /api/queue` endpoint + unit tests
+- [x] 6. `POST /api/queue` endpoint + unit tests
 - [ ] 7. `GET /api/status/:id` endpoint + unit tests
 - [ ] 8. `wol.py` — Wake-on-LAN magic packet + unit tests
 - [ ] 9. `worker.py` — background worker: poll queue, send WoL, call Ollama, update status, retry logic

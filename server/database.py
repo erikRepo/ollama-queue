@@ -2,6 +2,7 @@
 
 import logging
 import sqlite3
+from collections.abc import Generator
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ def get_db_path(database_url: str) -> Path:
 
 def get_connection(db_path: Path) -> sqlite3.Connection:
     """Open a SQLite connection with WAL journal mode and Row factory."""
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -69,3 +70,15 @@ def _v1(conn: sqlite3.Connection) -> None:
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs (status)")
+
+
+def get_db() -> Generator[sqlite3.Connection, None, None]:
+    """FastAPI dependency: open a per-request SQLite connection, close on exit."""
+    from server.config import load_settings  # local import avoids circular reference
+
+    settings = load_settings()
+    conn = get_connection(get_db_path(settings.database_url))
+    try:
+        yield conn
+    finally:
+        conn.close()
