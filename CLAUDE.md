@@ -19,17 +19,20 @@ Each item below is one session. After completing an item, in this exact order:
 - [x] 6. `POST /api/queue` endpoint + unit tests
 - [x] 7. `GET /api/status/:id` endpoint + unit tests
 - [x] 8. `wol.py` — Wake-on-LAN magic packet + unit tests
-- [ ] 9. `worker.py` — background worker: poll queue, send WoL, call Ollama, update status, retry logic
-- [ ] 10. E2E tests — full flow with temporary SQLite and mocked Ollama HTTP
+- [ ] 9.  `priority` field — add `high`/`low` priority to `JobRequest`, `JobResponse`, DB schema (migration v2), `queue.py` insert + list; update existing endpoint tests
+- [ ] 10. `config.py` — rename `WORKER_POLL_INTERVAL` → `WORKER_BATCH_INTERVAL` (low-priority batch window, seconds); add `WORKER_WOL_TIMEOUT` (max seconds to wait for Ollama after WoL, default 300)
+- [ ] 11. `worker.py` — rewrite with README-correct logic: `asyncio.Event` for instant high-priority wakeup; batch timer for low-priority; after WoL poll `GET /api/tags` with exponential backoff (2 s → 4 s → 8 s … up to `WORKER_WOL_TIMEOUT`) before sending jobs; unit tests for all branches
+- [ ] 12. E2E tests — full flow with temporary SQLite and mocked Ollama HTTP
 
 ### Client library
-- [ ] 11. `client/ollama_queue/client.py` — `OllamaQueueClient.generate()` blocking implementation
-- [ ] 12. Client unit tests + e2e test against a locally running server
+- [ ] 13. `client/ollama_queue/client.py` — `OllamaQueueClient.generate()` blocking implementation
+- [ ] 14. Client unit tests + e2e test against a locally running server
 
 ---
 
 ## Implementation philosophy
 
+- **README.md is the source of truth.** Every feature must be implemented exactly as described in `README.md`. Before starting any item, re-read the relevant README section. If an existing implementation contradicts the README, fix it in its own step before continuing.
 - **Small pieces.** Implement one logical unit at a time (one endpoint, one worker behaviour, one DB operation). Do not combine multiple features in a single step.
 - **Small files.** Split code into focused modules. No file should exceed ~200 lines. If it grows beyond that, split it before continuing.
 - **No speculative code.** Only implement what the current task requires. No "we might need this later" abstractions.
