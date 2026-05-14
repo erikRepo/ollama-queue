@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.0] - 2026-05-14
+
+### Added
+- `tests/e2e/test_full_flow.py`: 6 end-to-end tests that spin up the full FastAPI app with a real temporary SQLite database and mock Ollama at the HTTP layer (`urllib.request.urlopen`); covers low-priority batch flow, high-priority immediate wakeup, `ready→closed` status transition, multiple concurrent jobs, transient failure + retry, and permanent failure after max retries
+
 ## [1.0.0] - 2026-05-14
 
 ### Breaking Changes
