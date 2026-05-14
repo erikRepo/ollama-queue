@@ -9,7 +9,7 @@ import pytest
 
 from server import worker
 from server.config import Settings
-from server.models import JobResponse, JobStatus
+from server.models import JobPriority, JobResponse, JobStatus
 
 
 def _settings(**overrides) -> Settings:
@@ -35,7 +35,7 @@ def _job(**overrides) -> JobResponse:
     base = dict(
         id="test-job-1",
         status=JobStatus.PENDING,
-        priority="low",
+        priority=JobPriority.LOW,
         model="llama3",
         prompt="Hello, world!",
         response=None,
@@ -46,6 +46,278 @@ def _job(**overrides) -> JobResponse:
     )
     base.update(overrides)
     return JobResponse(**base)
+
+
+class TestRunWorker:
+    def test_high_priority_event_triggers_drain_immediately(self) -> None:
+        """Pre-set event bypasses the batch-interval wait."""
+        settings = _settings(worker_batch_interval=999.0)
+        conn = MagicMock()
+        drain_calls: list[int] = []
+
+        async def fake_drain(s, c):
+            drain_calls.append(1)
+            raise asyncio.CancelledError()
+
+        async def run():
+            event = asyncio.Event()
+            event.set()
+            with patch("server.worker._drain", new=fake_drain):
+                await worker.run_worker(settings, conn, event)
+
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(run())
+
+        assert len(drain_calls) == 1
+
+    def test_batch_interval_triggers_drain(self) -> None:
+        """Batch interval timeout fires drain without the event being set."""
+        settings = _settings(worker_batch_interval=0.01)
+        conn = MagicMock()
+        drain_calls: list[int] = []
+
+        async def fake_drain(s, c):
+            drain_calls.append(1)
+            raise asyncio.CancelledError()
+
+        async def run():
+            event = asyncio.Event()  # not set
+            with patch("server.worker._drain", new=fake_drain):
+                await worker.run_worker(settings, conn, event)
+
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(run())
+
+        assert len(drain_calls) == 1
+
+    def test_event_is_cleared_after_trigger(self) -> None:
+        """The high-priority event is cleared before _drain runs."""
+        settings = _settings(worker_batch_interval=999.0)
+        conn = MagicMock()
+        event_state_during_drain: list[bool] = []
+
+        async def fake_drain(s, c):
+            # capture event state inside the drain call
+            event_state_during_drain.append(False)  # event should be cleared
+            raise asyncio.CancelledError()
+
+        async def run():
+            event = asyncio.Event()
+            event.set()
+            with patch("server.worker._drain", new=fake_drain):
+                await worker.run_worker(settings, conn, event)
+            return event
+
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(run())
+
+        # drain was called once (event triggered)
+        assert len(event_state_during_drain) == 1
+
+    def test_cancellation_stops_cleanly(self) -> None:
+        """Cancelling the worker task raises CancelledError without side-effects."""
+        settings = _settings(worker_batch_interval=999.0)
+        conn = MagicMock()
+
+        async def run():
+            event = asyncio.Event()
+            task = asyncio.create_task(worker.run_worker(settings, conn, event))
+            await asyncio.sleep(0)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(run())  # must not raise
+
+
+class TestWaitForOllama:
+    def test_returns_true_when_ollama_responds(self) -> None:
+        settings = _settings(worker_wol_timeout=60)
+
+        with (
+            patch("server.worker._check_ollama_sync", return_value=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            result = asyncio.run(worker._wait_for_ollama(settings))
+
+        assert result is True
+
+    def test_returns_false_when_timeout_is_zero(self) -> None:
+        """wol_timeout=0 means deadline is immediately past — loop never executes."""
+        settings = _settings(worker_wol_timeout=0)
+
+        check_patch = patch("server.worker._check_ollama_sync", return_value=False)
+        with check_patch as mock_check:
+            result = asyncio.run(worker._wait_for_ollama(settings))
+
+        assert result is False
+        mock_check.assert_not_called()
+
+    def test_initial_sleep_is_two_seconds(self) -> None:
+        """First sleep delay must be exactly 2 s (start of exponential backoff)."""
+        settings = _settings(worker_wol_timeout=60)
+        sleep_calls: list[float] = []
+
+        async def mock_sleep(d: float) -> None:
+            sleep_calls.append(d)
+
+        with (
+            patch("server.worker._check_ollama_sync", return_value=True),
+            patch("asyncio.sleep", new=mock_sleep),
+        ):
+            asyncio.run(worker._wait_for_ollama(settings))
+
+        assert sleep_calls[0] == 2.0
+
+    def test_delay_doubles_on_each_retry(self) -> None:
+        """Sleep delays follow the 2→4→8 exponential sequence."""
+        settings = _settings(worker_wol_timeout=60)
+        sleep_calls: list[float] = []
+        check_count = [0]
+
+        async def mock_sleep(d: float) -> None:
+            sleep_calls.append(d)
+
+        def mock_check(s):
+            check_count[0] += 1
+            return check_count[0] >= 3  # succeed on 3rd attempt
+
+        with (
+            patch("server.worker._check_ollama_sync", side_effect=mock_check),
+            patch("asyncio.sleep", new=mock_sleep),
+        ):
+            result = asyncio.run(worker._wait_for_ollama(settings))
+
+        assert result is True
+        assert sleep_calls[:3] == [2.0, 4.0, 8.0]
+
+
+class TestDrain:
+    def test_no_pending_jobs_skips_wol_and_processing(self) -> None:
+        settings = _settings(wol_mac_address="AA:BB:CC:DD:EE:FF")
+        conn = MagicMock()
+
+        with (
+            patch("server.worker.queue.list_pending", return_value=[]),
+            patch("server.worker.send_wol") as mock_wol,
+            patch("server.worker._process_job", new=AsyncMock()) as mock_proc,
+        ):
+            asyncio.run(worker._drain(settings, conn))
+
+        mock_wol.assert_not_called()
+        mock_proc.assert_not_called()
+
+    def test_processes_jobs_directly_when_no_mac(self) -> None:
+        settings = _settings(wol_mac_address="")
+        conn = MagicMock()
+        job = _job()
+
+        with (
+            patch("server.worker.queue.list_pending", return_value=[job]),
+            patch("server.worker.send_wol") as mock_wol,
+            patch("server.worker._process_job", new=AsyncMock()) as mock_proc,
+        ):
+            asyncio.run(worker._drain(settings, conn))
+
+        mock_wol.assert_not_called()
+        mock_proc.assert_called_once_with(settings, conn, job)
+
+    def test_sends_wol_waits_for_ollama_then_processes(self) -> None:
+        settings = _settings(wol_mac_address="AA:BB:CC:DD:EE:FF")
+        conn = MagicMock()
+        job = _job()
+
+        with (
+            patch("server.worker.queue.list_pending", return_value=[job]),
+            patch("server.worker.send_wol") as mock_wol,
+            patch("server.worker._wait_for_ollama", new=AsyncMock(return_value=True)),
+            patch("server.worker._process_job", new=AsyncMock()) as mock_proc,
+        ):
+            asyncio.run(worker._drain(settings, conn))
+
+        mock_wol.assert_called_once_with(
+            "AA:BB:CC:DD:EE:FF", settings.wol_broadcast, settings.wol_port
+        )
+        mock_proc.assert_called_once_with(settings, conn, job)
+
+    def test_wol_send_failure_still_continues_to_check_ollama(self) -> None:
+        """A WoL send error is logged but does not abort the drain."""
+        settings = _settings(wol_mac_address="AA:BB:CC:DD:EE:FF")
+        conn = MagicMock()
+        job = _job()
+
+        with (
+            patch("server.worker.queue.list_pending", return_value=[job]),
+            patch("server.worker.send_wol", side_effect=OSError("network error")),
+            patch("server.worker._wait_for_ollama", new=AsyncMock(return_value=True)),
+            patch("server.worker._process_job", new=AsyncMock()) as mock_proc,
+        ):
+            asyncio.run(worker._drain(settings, conn))
+
+        mock_proc.assert_called_once()
+
+    def test_wol_timeout_applies_failure_and_skips_processing(self) -> None:
+        settings = _settings(wol_mac_address="AA:BB:CC:DD:EE:FF")
+        conn = MagicMock()
+        job = _job()
+
+        with (
+            patch("server.worker.queue.list_pending", return_value=[job]),
+            patch("server.worker.send_wol"),
+            patch("server.worker._wait_for_ollama", new=AsyncMock(return_value=False)),
+            patch("server.worker._apply_wol_failure") as mock_apply,
+            patch("server.worker._process_job", new=AsyncMock()) as mock_proc,
+        ):
+            asyncio.run(worker._drain(settings, conn))
+
+        mock_apply.assert_called_once_with(settings, conn, [job])
+        mock_proc.assert_not_called()
+
+
+class TestApplyWolFailure:
+    def test_keeps_job_pending_within_retry_limit(self) -> None:
+        settings = _settings(worker_max_retries=3)
+        conn = MagicMock()
+        job = _job(retry_count=0)
+
+        with patch("server.worker.queue.update_status") as mock_update:
+            worker._apply_wol_failure(settings, conn, [job])
+
+        mock_update.assert_called_once_with(
+            conn,
+            job.id,
+            JobStatus.PENDING,
+            error="WoL: Ollama did not respond within timeout",
+            retry_count=1,
+        )
+
+    def test_marks_job_failed_at_max_retries(self) -> None:
+        settings = _settings(worker_max_retries=3)
+        conn = MagicMock()
+        job = _job(retry_count=2)  # next failure is 3rd → permanent fail
+
+        with patch("server.worker.queue.update_status") as mock_update:
+            worker._apply_wol_failure(settings, conn, [job])
+
+        mock_update.assert_called_once_with(
+            conn,
+            job.id,
+            JobStatus.FAILED,
+            error="WoL: Ollama did not respond within timeout",
+            retry_count=3,
+        )
+
+    def test_handles_multiple_jobs(self) -> None:
+        settings = _settings(worker_max_retries=3)
+        conn = MagicMock()
+        jobs = [_job(id="job-1", retry_count=0), _job(id="job-2", retry_count=0)]
+
+        with patch("server.worker.queue.update_status") as mock_update:
+            worker._apply_wol_failure(settings, conn, jobs)
+
+        assert mock_update.call_count == 2
 
 
 class TestProcessJob:
@@ -102,66 +374,6 @@ class TestProcessJob:
         assert calls[0] == call(conn, job.id, JobStatus.PROCESSING)
         assert calls[1].args[2] == JobStatus.FAILED
         assert calls[1].kwargs["retry_count"] == 3
-
-    def test_wol_sent_on_first_attempt(self) -> None:
-        settings = _settings(wol_mac_address="AA:BB:CC:DD:EE:FF")
-        conn = MagicMock()
-        job = _job(retry_count=0)
-
-        with (
-            patch("server.worker.queue.update_status"),
-            patch("server.worker._call_ollama", new=AsyncMock(return_value="ok")),
-            patch("server.worker.send_wol") as mock_wol,
-        ):
-            asyncio.run(worker._process_job(settings, conn, job))
-
-        mock_wol.assert_called_once_with(
-            "AA:BB:CC:DD:EE:FF", settings.wol_broadcast, settings.wol_port
-        )
-
-    def test_wol_not_sent_on_retry(self) -> None:
-        settings = _settings(wol_mac_address="AA:BB:CC:DD:EE:FF")
-        conn = MagicMock()
-        job = _job(retry_count=1)
-
-        with (
-            patch("server.worker.queue.update_status"),
-            patch("server.worker._call_ollama", new=AsyncMock(return_value="ok")),
-            patch("server.worker.send_wol") as mock_wol,
-        ):
-            asyncio.run(worker._process_job(settings, conn, job))
-
-        mock_wol.assert_not_called()
-
-    def test_wol_not_sent_when_no_mac_configured(self) -> None:
-        settings = _settings(wol_mac_address="")
-        conn = MagicMock()
-        job = _job(retry_count=0)
-
-        with (
-            patch("server.worker.queue.update_status"),
-            patch("server.worker._call_ollama", new=AsyncMock(return_value="ok")),
-            patch("server.worker.send_wol") as mock_wol,
-        ):
-            asyncio.run(worker._process_job(settings, conn, job))
-
-        mock_wol.assert_not_called()
-
-    def test_wol_failure_does_not_abort_job(self) -> None:
-        settings = _settings(wol_mac_address="AA:BB:CC:DD:EE:FF")
-        conn = MagicMock()
-        job = _job(retry_count=0)
-
-        with (
-            patch("server.worker.queue.update_status") as mock_update,
-            patch("server.worker._call_ollama", new=AsyncMock(return_value="ok")),
-            patch("server.worker.send_wol", side_effect=OSError("network error")),
-        ):
-            asyncio.run(worker._process_job(settings, conn, job))
-
-        # Job should still complete despite WoL failure
-        last_call = mock_update.call_args_list[-1]
-        assert last_call.args[2] == JobStatus.COMPLETED
 
 
 class TestCallOllamaSync:

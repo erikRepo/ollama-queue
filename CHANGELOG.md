@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0] - 2026-05-14
+
+### Changed
+- `server/worker.py` rewritten with README-correct logic: `run_worker` now accepts an `asyncio.Event` and wakes immediately on high-priority jobs, falling back to the `WORKER_BATCH_INTERVAL` timer for low-priority batches
+- WoL is sent once per batch (in `_drain`) rather than per job; after sending, `_wait_for_ollama` polls `GET /api/tags` with exponential backoff (2 s → 4 s → 8 s …) up to `WORKER_WOL_TIMEOUT`; if Ollama does not respond, `_apply_wol_failure` increments `retry_count` for all pending jobs (marking `failed` at `worker_max_retries`)
+- `server/main.py`: creates `asyncio.Event` in lifespan, stores in `app.state`, passes to `run_worker`
+- `server/router.py`: `POST /api/queue` is now async and sets the event when a `high`-priority job is enqueued
+
+### Added
+- `_check_ollama_sync`: health-poll helper (`GET /api/tags`)
+- 23 unit tests covering `TestRunWorker` (event trigger, batch timer, cancellation), `TestWaitForOllama` (success, timeout, backoff), `TestDrain` (no-mac, WoL paths, timeout path), `TestApplyWolFailure` (pending/failed transitions)
+
 ## [0.10.0] - 2026-05-14
 
 ### Changed

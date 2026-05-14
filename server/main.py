@@ -25,7 +25,9 @@ async def lifespan(app: FastAPI):
     db_path = get_db_path(_settings.database_url)
     init_db(db_path)
     conn = get_connection(db_path)
-    task = asyncio.create_task(run_worker(_settings, conn))
+    high_priority_event = asyncio.Event()
+    app.state.high_priority_event = high_priority_event
+    task = asyncio.create_task(run_worker(_settings, conn, high_priority_event))
     try:
         yield
     finally:
