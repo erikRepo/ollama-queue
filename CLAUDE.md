@@ -7,10 +7,11 @@ Each item below is one session. After completing an item, in this exact order:
 1. Show the result and **wait for user approval**
 2. Bump the version in `pyproject.toml` (patch = bug fix / small addition, minor = new feature, major = breaking change)
 3. Add an entry to `CHANGELOG.md` describing what changed
-4. `git commit` + `git push`
+4. Mark the completed item as done (`[x]`) in this checklist
+5. `git commit` + `git push`
 
 ### Server
-- [ ] 1. Project scaffolding — `pyproject.toml` (version starts at `0.1.0`), `CHANGELOG.md`, `.env.example`, directory skeleton, `ruff` config
+- [x] 1. Project scaffolding — `pyproject.toml` (version starts at `0.1.0`), `CHANGELOG.md`, `.env.example`, directory skeleton, `ruff` config
 - [ ] 2. `config.py` — load all settings from env/`.env` with defaults and validation
 - [ ] 3. `database.py` — SQLite connection, schema creation, migration on startup
 - [ ] 4. `models.py` — Pydantic request/response models and job status enum
@@ -66,6 +67,16 @@ ollama-queue/
 - Unit tests live in `tests/unit/` and must not touch the filesystem, network, or database.
 - E2E tests live in `tests/e2e/` and spin up the full FastAPI app with a temporary SQLite database. Ollama is mocked at the HTTP level (e.g. `respx` or `responses`).
 - Run tests with `pytest` before reporting a task as complete.
+
+## Python environment
+
+- All Python code must run inside a virtual environment — never use the system Python.
+- Create the virtual environment with `python -m venv .venv` in the project root.
+- Activate with `source .venv/bin/activate` before running any command.
+- Install project and dev dependencies with `pip install -e ".[dev]"`.
+- Never install packages globally; all dependencies go into `.venv/`.
+- `.venv/` must be listed in `.gitignore`.
+- Before running `pytest`, `ruff`, or the server, always verify the venv is active.
 
 ## Code quality
 
