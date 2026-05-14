@@ -49,7 +49,8 @@ class Settings:
     database_url: str
     ollama_host: str
     ollama_timeout: int
-    worker_poll_interval: float
+    worker_batch_interval: float
+    worker_wol_timeout: int
     worker_max_retries: int
     worker_retry_delay: float
     wol_mac_address: str
@@ -63,6 +64,8 @@ def _validate(s: Settings) -> Settings:
         raise ValueError(f"PORT={s.port} must be between 1 and 65535")
     if s.ollama_timeout < 0:
         raise ValueError(f"OLLAMA_TIMEOUT={s.ollama_timeout} must be >= 0")
+    if s.worker_wol_timeout < 0:
+        raise ValueError(f"WORKER_WOL_TIMEOUT={s.worker_wol_timeout} must be >= 0")
     if s.worker_max_retries < 0:
         raise ValueError(f"WORKER_MAX_RETRIES={s.worker_max_retries} must be >= 0")
     return s
@@ -83,7 +86,8 @@ def load_settings(env_file: Path | None = Path(".env")) -> Settings:
             database_url=os.environ.get("DATABASE_URL", "sqlite:///./ollama_queue.db"),
             ollama_host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
             ollama_timeout=_int_env("OLLAMA_TIMEOUT", 300),
-            worker_poll_interval=_float_env("WORKER_POLL_INTERVAL", 2.0),
+            worker_batch_interval=_float_env("WORKER_BATCH_INTERVAL", 2.0),
+            worker_wol_timeout=_int_env("WORKER_WOL_TIMEOUT", 300),
             worker_max_retries=_int_env("WORKER_MAX_RETRIES", 3),
             worker_retry_delay=_float_env("WORKER_RETRY_DELAY", 5.0),
             wol_mac_address=os.environ.get("WOL_MAC_ADDRESS", ""),

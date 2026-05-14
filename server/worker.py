@@ -24,11 +24,11 @@ async def run_worker(settings: Settings, conn: Connection) -> None:
         settings: Application settings (poll interval, retry limits, etc.).
         conn: Dedicated SQLite connection for the worker.
     """
-    logger.info("Worker started (poll_interval=%.1fs)", settings.worker_poll_interval)
+    logger.info("Worker started (poll_interval=%.1fs)", settings.worker_batch_interval)
     try:
         while True:
             await _process_pending(settings, conn)
-            await asyncio.sleep(settings.worker_poll_interval)
+            await asyncio.sleep(settings.worker_batch_interval)
     except asyncio.CancelledError:
         logger.info("Worker stopped")
         raise

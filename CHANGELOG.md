@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.10.0] - 2026-05-14
+
+### Changed
+- Renamed `WORKER_POLL_INTERVAL` → `WORKER_BATCH_INTERVAL` (low-priority batch window, seconds); updated `Settings` field, `.env.example`, worker, and all tests
+
+### Added
+- `WORKER_WOL_TIMEOUT` setting (max seconds to wait for Ollama after WoL, default 300); validated >= 0
+- README ⚙️ Configuration section aligned to actual env var names (`WOL_MAC_ADDRESS`, `OLLAMA_HOST`, `WORKER_BATCH_INTERVAL`); removed stale `SERVER_IP`, `SERVER_MAC_ADDRESS`, `STORAGE_TYPE`, `CRON_INTERVAL`
+
 ## [0.9.0] - 2026-05-14
 
 ### Added

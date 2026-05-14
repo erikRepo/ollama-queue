@@ -20,7 +20,7 @@ Each item below is one session. After completing an item, in this exact order:
 - [x] 7. `GET /api/status/:id` endpoint + unit tests
 - [x] 8. `wol.py` — Wake-on-LAN magic packet + unit tests
 - [x] 9.  `priority` field — add `high`/`low` priority to `JobRequest`, `JobResponse`, DB schema (migration v2), `queue.py` insert + list; update existing endpoint tests
-- [ ] 10. `config.py` — rename `WORKER_POLL_INTERVAL` → `WORKER_BATCH_INTERVAL` (low-priority batch window, seconds); add `WORKER_WOL_TIMEOUT` (max seconds to wait for Ollama after WoL, default 300)
+- [x] 10. `config.py` — rename `WORKER_POLL_INTERVAL` → `WORKER_BATCH_INTERVAL` (low-priority batch window, seconds); add `WORKER_WOL_TIMEOUT` (max seconds to wait for Ollama after WoL, default 300)
 - [ ] 11. `worker.py` — rewrite with README-correct logic: `asyncio.Event` for instant high-priority wakeup; batch timer for low-priority; after WoL poll `GET /api/tags` with exponential backoff (2 s → 4 s → 8 s … up to `WORKER_WOL_TIMEOUT`) before sending jobs; unit tests for all branches
 - [ ] 12. E2E tests — full flow with temporary SQLite and mocked Ollama HTTP
 

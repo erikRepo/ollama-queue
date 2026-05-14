@@ -121,13 +121,22 @@ After sending the Wake-on-LAN magic packet, the worker polls Ollama's health end
 Configure the application via environment variables or a `.env` file:
 
 ```env
-PORT=3000
-SERVER_MAC_ADDRESS=AA:BB:CC:DD:EE:FF
-SERVER_IP=192.168.1.50
-OLLAMA_API_URL=http://192.168.1.50:11434
-CRON_INTERVAL="0 */4 * * *" # Wake up every 4 hours if no urgent items
-STORAGE_TYPE=sqlite          # sqlite or file
-OLLAMA_CONCURRENCY=1         # max parallel requests sent to Ollama (1 = fully sequential)
+HOST=0.0.0.0
+PORT=8080
+DATABASE_URL=sqlite:///./ollama_queue.db
+
+OLLAMA_HOST=http://192.168.1.50:11434   # full base URL of the Ollama server
+OLLAMA_TIMEOUT=300                       # seconds to wait for an Ollama response
+OLLAMA_CONCURRENCY=1                     # max parallel requests to Ollama (1 = sequential)
+
+WORKER_BATCH_INTERVAL=2.0               # low-priority batch window (seconds)
+WORKER_WOL_TIMEOUT=300                  # max seconds to wait for Ollama after WoL
+WORKER_MAX_RETRIES=3                    # how many times to retry a failed job
+WORKER_RETRY_DELAY=5.0                  # seconds between retries
+
+WOL_MAC_ADDRESS=AA:BB:CC:DD:EE:FF      # leave blank to disable Wake-on-LAN
+WOL_BROADCAST=255.255.255.255
+WOL_PORT=9
 ```
 
 ## 📦 Python Client Library

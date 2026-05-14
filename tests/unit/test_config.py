@@ -29,9 +29,13 @@ class TestDefaults:
         s = load_settings(env_file=None)
         assert s.ollama_timeout == 300
 
-    def test_default_worker_poll_interval(self, clean_env: None) -> None:
+    def test_default_worker_batch_interval(self, clean_env: None) -> None:
         s = load_settings(env_file=None)
-        assert s.worker_poll_interval == 2.0
+        assert s.worker_batch_interval == 2.0
+
+    def test_default_worker_wol_timeout(self, clean_env: None) -> None:
+        s = load_settings(env_file=None)
+        assert s.worker_wol_timeout == 300
 
     def test_default_worker_max_retries(self, clean_env: None) -> None:
         s = load_settings(env_file=None)
@@ -70,10 +74,15 @@ class TestEnvOverrides:
         s = load_settings(env_file=None)
         assert s.wol_mac_address == "AA:BB:CC:DD:EE:FF"
 
-    def test_worker_poll_interval_from_env(self, clean_env: None) -> None:
-        os.environ["WORKER_POLL_INTERVAL"] = "0.5"
+    def test_worker_batch_interval_from_env(self, clean_env: None) -> None:
+        os.environ["WORKER_BATCH_INTERVAL"] = "0.5"
         s = load_settings(env_file=None)
-        assert s.worker_poll_interval == 0.5
+        assert s.worker_batch_interval == 0.5
+
+    def test_worker_wol_timeout_from_env(self, clean_env: None) -> None:
+        os.environ["WORKER_WOL_TIMEOUT"] = "120"
+        s = load_settings(env_file=None)
+        assert s.worker_wol_timeout == 120
 
 
 class TestDotEnvFile:
@@ -133,6 +142,11 @@ class TestValidation:
         with pytest.raises(ValueError, match="WORKER_MAX_RETRIES"):
             load_settings(env_file=None)
 
+    def test_negative_wol_timeout_raises(self, clean_env: None) -> None:
+        os.environ["WORKER_WOL_TIMEOUT"] = "-1"
+        with pytest.raises(ValueError, match="WORKER_WOL_TIMEOUT"):
+            load_settings(env_file=None)
+
     def test_settings_is_immutable(self, clean_env: None) -> None:
         s = load_settings(env_file=None)
         with pytest.raises((AttributeError, TypeError)):
@@ -149,7 +163,8 @@ _CONFIG_KEYS = [
     "DATABASE_URL",
     "OLLAMA_HOST",
     "OLLAMA_TIMEOUT",
-    "WORKER_POLL_INTERVAL",
+    "WORKER_BATCH_INTERVAL",
+    "WORKER_WOL_TIMEOUT",
     "WORKER_MAX_RETRIES",
     "WORKER_RETRY_DELAY",
     "WOL_MAC_ADDRESS",
