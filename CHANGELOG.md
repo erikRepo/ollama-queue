@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.0] - 2026-05-14
+
+### Added
+- `server/router.py`: `GET /api/status/{job_id}` endpoint — returns `JobResponse` with HTTP 200 if found, HTTP 404 with detail message if not
+- `tests/unit/test_get_status.py`: 4 unit tests covering 200 response shape, field correctness, and 404 for unknown ID; uses in-memory SQLite via dependency override
+
 ## [0.6.0] - 2026-05-14
 
 ### Added
