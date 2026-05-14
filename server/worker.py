@@ -15,6 +15,9 @@ from server.wol import send_wol
 
 logger = logging.getLogger(__name__)
 
+_WEBHOOK_MAX_ATTEMPTS = 3
+_WEBHOOK_RETRY_DELAY = 1.0
+
 
 async def run_worker(
     settings: Settings, conn: Connection, high_priority_event: asyncio.Event
@@ -142,6 +145,11 @@ async def _process_job(settings: Settings, conn: Connection, job: JobResponse) -
     try:
         response_text = await _call_ollama(settings, job)
         queue.update_status(conn, job.id, JobStatus.READY, response=response_text)
+        if job.callback_url:
+            completed = job.model_copy(
+                update={"status": JobStatus.READY, "response": response_text}
+            )
+            await _deliver_webhook(job.callback_url, completed, conn)
     except Exception as exc:
         new_retry = job.retry_count + 1
         if new_retry >= settings.worker_max_retries:
@@ -207,4 +215,71 @@ def _check_ollama_sync(settings: Settings) -> bool:
         with urllib.request.urlopen(url, timeout=10) as resp:
             return resp.status == 200
     except Exception:
+        return False
+
+
+async def _deliver_webhook(
+    callback_url: str, job: JobResponse, conn: Connection
+) -> None:
+    """POST the completed job to callback_url and mark it CLOSED on success.
+
+    Retries up to _WEBHOOK_MAX_ATTEMPTS times on transient errors (5xx, network).
+    Permanent failures (4xx) are abandoned — the job stays READY for polling.
+    """
+    loop = asyncio.get_running_loop()
+    for attempt in range(1, _WEBHOOK_MAX_ATTEMPTS + 1):
+        result = await loop.run_in_executor(None, _post_webhook_sync, callback_url, job)
+        if result is True:
+            queue.update_status(conn, job.id, JobStatus.CLOSED)
+            logger.info("Webhook delivered for job %s → CLOSED", job.id)
+            return
+        if result is None:
+            logger.warning(
+                "Webhook for job %s permanently rejected by %s", job.id, callback_url
+            )
+            return
+        if attempt < _WEBHOOK_MAX_ATTEMPTS:
+            logger.warning(
+                "Webhook attempt %d/%d failed for job %s — retrying in %.1fs",
+                attempt,
+                _WEBHOOK_MAX_ATTEMPTS,
+                job.id,
+                _WEBHOOK_RETRY_DELAY,
+            )
+            await asyncio.sleep(_WEBHOOK_RETRY_DELAY)
+    logger.warning(
+        "Webhook delivery gave up for job %s after %d attempts — job stays READY",
+        job.id,
+        _WEBHOOK_MAX_ATTEMPTS,
+    )
+
+
+def _post_webhook_sync(callback_url: str, job: JobResponse) -> bool | None:
+    """Blocking POST of job JSON to callback_url.
+
+    Returns:
+        True on success (2xx), False on transient failure (5xx / network),
+        None on permanent failure (4xx).
+    """
+    payload = job.model_dump_json().encode()
+    req = urllib.request.Request(
+        callback_url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp.read()
+            return True
+    except urllib.error.HTTPError as exc:
+        if exc.code >= 500:
+            logger.debug("Webhook transient HTTP %d for %s", exc.code, callback_url)
+            return False
+        logger.warning(
+            "Webhook permanent HTTP %d for job %s at %s", exc.code, job.id, callback_url
+        )
+        return None
+    except urllib.error.URLError as exc:
+        logger.debug("Webhook network error for %s: %s", callback_url, exc.reason)
         return False

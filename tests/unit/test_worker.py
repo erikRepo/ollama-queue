@@ -331,12 +331,33 @@ class TestProcessJob:
         with (
             patch("server.worker.queue.update_status") as mock_update,
             patch("server.worker._call_ollama", new=ollama_mock),
+            patch("server.worker._deliver_webhook", new=AsyncMock()) as mock_webhook,
         ):
             asyncio.run(worker._process_job(settings, conn, job))
 
         calls = mock_update.call_args_list
         assert calls[0] == call(conn, job.id, JobStatus.PROCESSING)
         assert calls[1] == call(conn, job.id, JobStatus.READY, response="AI response")
+        mock_webhook.assert_not_called()
+
+    def test_success_with_callback_url_delivers_webhook(self) -> None:
+        settings = _settings()
+        conn = MagicMock()
+        job = _job(callback_url="http://example.com/cb")
+
+        ollama_mock = AsyncMock(return_value="AI response")
+        webhook_mock = AsyncMock()
+        with (
+            patch("server.worker.queue.update_status"),
+            patch("server.worker._call_ollama", new=ollama_mock),
+            patch("server.worker._deliver_webhook", new=webhook_mock),
+        ):
+            asyncio.run(worker._process_job(settings, conn, job))
+
+        webhook_mock.assert_called_once()
+        args = webhook_mock.call_args
+        assert args.args[0] == "http://example.com/cb"
+        assert args.args[2] is conn
 
     def test_failure_within_retries_requeues_with_incremented_count(self) -> None:
         settings = _settings(worker_max_retries=3)
@@ -550,3 +571,115 @@ class TestDrainConcurrency:
             asyncio.run(worker._drain(settings, conn))
 
         assert sorted(processed) == [f"job-{i}" for i in range(4)]
+
+
+class TestDeliverWebhook:
+    def test_success_posts_and_marks_closed(self) -> None:
+        """On HTTP 2xx the job is marked CLOSED."""
+        conn = MagicMock()
+        job = _job(callback_url="http://example.com/cb")
+
+        with (
+            patch("server.worker._post_webhook_sync", return_value=True),
+            patch("server.worker.queue.update_status") as mock_update,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            asyncio.run(worker._deliver_webhook("http://example.com/cb", job, conn))
+
+        mock_update.assert_called_once_with(conn, job.id, JobStatus.CLOSED)
+
+    def test_permanent_error_stops_retrying(self) -> None:
+        """A 4xx response (None) is not retried and job stays READY."""
+        conn = MagicMock()
+        job = _job()
+
+        with (
+            patch("server.worker._post_webhook_sync", return_value=None) as mock_post,
+            patch("server.worker.queue.update_status") as mock_update,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            asyncio.run(worker._deliver_webhook("http://example.com/cb", job, conn))
+
+        mock_post.assert_called_once()
+        mock_update.assert_not_called()
+
+    def test_transient_errors_retried_until_success(self) -> None:
+        """Transient failures are retried; success on the third attempt marks CLOSED."""
+        conn = MagicMock()
+        job = _job()
+        results = [False, False, True]
+
+        with (
+            patch("server.worker._post_webhook_sync", side_effect=results) as mock_post,
+            patch("server.worker.queue.update_status") as mock_update,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            asyncio.run(worker._deliver_webhook("http://example.com/cb", job, conn))
+
+        assert mock_post.call_count == 3
+        mock_update.assert_called_once_with(conn, job.id, JobStatus.CLOSED)
+
+    def test_all_retries_exhausted_job_stays_ready(self) -> None:
+        """After all attempts fail transiently the job is not marked CLOSED."""
+        conn = MagicMock()
+        job = _job()
+
+        with (
+            patch("server.worker._post_webhook_sync", return_value=False) as mock_post,
+            patch("server.worker.queue.update_status") as mock_update,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            asyncio.run(worker._deliver_webhook("http://example.com/cb", job, conn))
+
+        assert mock_post.call_count == worker._WEBHOOK_MAX_ATTEMPTS
+        mock_update.assert_not_called()
+
+
+class TestPostWebhookSync:
+    def _make_response(self, status: int) -> MagicMock:
+        mock_resp = MagicMock()
+        mock_resp.status = status
+        mock_resp.read.return_value = b""
+        mock_resp.__enter__ = lambda s: mock_resp
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        return mock_resp
+
+    def test_success_returns_true(self) -> None:
+        job = _job()
+        with patch(
+            "urllib.request.urlopen",
+            return_value=self._make_response(200),
+        ):
+            result = worker._post_webhook_sync("http://example.com/cb", job)
+        assert result is True
+
+    def test_5xx_returns_false(self) -> None:
+        job = _job()
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError(
+                url="http://x", code=503, msg="Service Unavailable", hdrs=None, fp=None
+            ),
+        ):
+            result = worker._post_webhook_sync("http://example.com/cb", job)
+        assert result is False
+
+    def test_4xx_returns_none(self) -> None:
+        job = _job()
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError(
+                url="http://x", code=404, msg="Not Found", hdrs=None, fp=None
+            ),
+        ):
+            result = worker._post_webhook_sync("http://example.com/cb", job)
+        assert result is None
+
+    def test_network_error_returns_false(self) -> None:
+        job = _job()
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("Connection refused"),
+        ):
+            result = worker._post_webhook_sync("http://example.com/cb", job)
+        assert result is False

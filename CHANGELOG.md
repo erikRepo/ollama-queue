@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0] - 2026-05-14
+
+### Added
+- Webhook delivery: when a job completes and `callback_url` is set, `worker.py` sends `POST callback_url` with the full `JobResponse` JSON body and marks the job `closed`; retries up to 3 times on transient HTTP errors (5xx / network); permanent errors (4xx) are abandoned and the job stays `ready` for polling
+- `_deliver_webhook` and `_post_webhook_sync` in `server/worker.py`
+- Unit tests: `TestDeliverWebhook` (success→closed, permanent 4xx stops retrying, transient retried until success, all retries exhausted→ready) and `TestPostWebhookSync` (2xx→True, 5xx→False, 4xx→None, network→False)
+- E2E tests: webhook delivered and job closed, webhook failure leaves job ready for polling
+
 ## [1.1.0] - 2026-05-14
 
 ### Added

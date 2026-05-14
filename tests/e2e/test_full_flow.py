@@ -202,3 +202,69 @@ class TestFullFlow:
             data = _poll(app_client, job_id, timeout=10.0)
 
         assert data["status"] == "failed"
+
+    def test_webhook_delivered_and_job_closed(self, app_client: TestClient) -> None:
+        """Worker POSTs the completed job to callback_url and marks it CLOSED."""
+        webhook_calls: list[dict] = []
+
+        def _urlopen_side_effect(req, timeout=None):
+            if "api/chat" in req.full_url:
+                return _ok_mock("webhook result")
+            resp = MagicMock()
+            resp.read.return_value = b""
+            resp.status = 200
+            resp.__enter__ = lambda s: resp
+            resp.__exit__ = MagicMock(return_value=False)
+            webhook_calls.append(
+                {"url": req.full_url, "body": json.loads(req.data.decode())}
+            )
+            return resp
+
+        with patch("urllib.request.urlopen", side_effect=_urlopen_side_effect):
+            resp = app_client.post(
+                "/api/queue",
+                json={
+                    "model": "llama3",
+                    "messages": _MESSAGES,
+                    "callback_url": "http://client.example.com/webhook",
+                },
+            )
+            assert resp.status_code == 201
+            job_id = resp.json()["id"]
+            data = _poll(app_client, job_id)
+
+        assert data["status"] == "closed"
+        assert len(webhook_calls) == 1
+        body = webhook_calls[0]["body"]
+        assert webhook_calls[0]["url"] == "http://client.example.com/webhook"
+        assert body["id"] == job_id
+        assert body["status"] == "ready"
+        assert body["response"] == "webhook result"
+
+    def test_webhook_failure_job_stays_ready_for_polling(
+        self, app_client: TestClient
+    ) -> None:
+        """If all webhook attempts fail the job stays READY so the client can poll."""
+
+        def _urlopen_side_effect(req, timeout=None):
+            if "api/chat" in req.full_url:
+                return _ok_mock("answer")
+            raise urllib.error.URLError("webhook down")
+
+        with (
+            patch("urllib.request.urlopen", side_effect=_urlopen_side_effect),
+            patch("server.worker._WEBHOOK_RETRY_DELAY", 0.0),
+        ):
+            resp = app_client.post(
+                "/api/queue",
+                json={
+                    "model": "llama3",
+                    "messages": _MESSAGES,
+                    "callback_url": "http://broken.example.com/cb",
+                },
+            )
+            job_id = resp.json()["id"]
+            data = _poll(app_client, job_id)
+
+        assert data["status"] == "ready"
+        assert data["response"] == "answer"

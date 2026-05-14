@@ -23,7 +23,7 @@ Each item below is one session. After completing an item, in this exact order:
 - [x] 10. `config.py` — rename `WORKER_POLL_INTERVAL` → `WORKER_BATCH_INTERVAL` (low-priority batch window, seconds); add `WORKER_WOL_TIMEOUT` (max seconds to wait for Ollama after WoL, default 300)
 - [x] 11. `worker.py` — rewrite with README-correct logic: `asyncio.Event` for instant high-priority wakeup; batch timer for low-priority; after WoL poll `GET /api/tags` with exponential backoff (2 s → 4 s → 8 s … up to `WORKER_WOL_TIMEOUT`) before sending jobs; unit tests for all branches
 - [x] 12. E2E tests — full flow with temporary SQLite and mocked Ollama HTTP
-- [ ] 13. Webhook delivery — when a job completes and `callback_url` is set, `worker.py` sends `POST callback_url` with the `JobResponse` JSON body; retry on transient HTTP errors; unit tests for success, failure, and no-op when `callback_url` is null
+- [x] 13. Webhook delivery — when a job completes and `callback_url` is set, `worker.py` sends `POST callback_url` with the `JobResponse` JSON body; retry on transient HTTP errors; unit tests for success, failure, and no-op when `callback_url` is null
 
 ### Client library
 - [ ] 14. `client/ollama_queue/client.py` — `OllamaQueueClient.generate()` blocking implementation
