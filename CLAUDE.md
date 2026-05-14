@@ -15,7 +15,7 @@ Each item below is one session. After completing an item, in this exact order:
 - [x] 2. `config.py` — load all settings from env/`.env` with defaults and validation
 - [x] 3. `database.py` — SQLite connection, schema creation, migration on startup
 - [x] 4. `models.py` — Pydantic request/response models and job status enum
-- [ ] 5. `queue.py` — Job CRUD: insert, get by id, list pending, update status
+- [x] 5. `queue.py` — Job CRUD: insert, get by id, list pending, update status
 - [ ] 6. `POST /api/queue` endpoint + unit tests
 - [ ] 7. `GET /api/status/:id` endpoint + unit tests
 - [ ] 8. `wol.py` — Wake-on-LAN magic packet + unit tests

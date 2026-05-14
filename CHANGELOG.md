@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0] - 2026-05-14
+
+### Added
+- `server/queue.py`: Job CRUD — `insert`, `get_by_id`, `list_pending`, `update_status`; all operations take a `sqlite3.Connection` directly and log every state transition at `INFO` level
+- `tests/unit/test_queue.py`: 22 unit tests covering all four functions using in-memory SQLite
+- `CONTRIBUTING.md`: developer setup guide (venv, install, running tests, ruff, config reference)
+
 ## [0.4.0] - 2026-05-14
 
 ### Added
