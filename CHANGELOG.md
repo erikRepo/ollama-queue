@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0] - 2026-05-14
+
+### Added
+- `client/tests/test_client_unit.py`: 8 unit tests covering `_local_ip_for`, `_make_handler`, `OllamaQueueClient.generate()`, and `OllamaQueueClient._enqueue()`
+- `client/tests/test_client_e2e.py`: 1 e2e test that starts a real `uvicorn` server in a daemon thread, mocks only the Ollama HTTP calls, and verifies `generate()` returns the correct response via the full webhook path
+- `[tool.pytest.ini_options] testpaths` in root `pyproject.toml` so bare `pytest` discovers both `tests/` and `client/tests/`
+
 ## [1.3.0] - 2026-05-14
 
 ### Added

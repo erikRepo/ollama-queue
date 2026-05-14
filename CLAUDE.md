@@ -27,7 +27,7 @@ Each item below is one session. After completing an item, in this exact order:
 
 ### Client library
 - [x] 14. `client/ollama_queue/client.py` — `OllamaQueueClient.generate()` blocking implementation
-- [ ] 15. Client unit tests + e2e test against a locally running server
+- [x] 15. Client unit tests + e2e test against a locally running server
 
 ---
 
