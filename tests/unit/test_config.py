@@ -15,7 +15,7 @@ class TestDefaults:
 
     def test_default_port(self, clean_env: None) -> None:
         s = load_settings(env_file=None)
-        assert s.port == 8080
+        assert s.port == 11430
 
     def test_default_database_url(self, clean_env: None) -> None:
         s = load_settings(env_file=None)
@@ -105,7 +105,7 @@ class TestDotEnvFile:
 
     def test_missing_file_uses_defaults(self, tmp_path: Path, clean_env: None) -> None:
         s = load_settings(env_file=tmp_path / "nonexistent.env")
-        assert s.port == 8080
+        assert s.port == 11430
 
     def test_ignores_blank_lines_and_comments(
         self, tmp_path: Path, clean_env: None

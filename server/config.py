@@ -85,7 +85,7 @@ def load_settings(env_file: Path | None = Path(".env")) -> Settings:
     return _validate(
         Settings(
             host=os.environ.get("HOST", "0.0.0.0"),
-            port=_int_env("PORT", 8080),
+            port=_int_env("PORT", 11430),
             database_url=os.environ.get("DATABASE_URL", "sqlite:///./ollama_queue.db"),
             ollama_host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
             ollama_timeout=_int_env("OLLAMA_TIMEOUT", 300),

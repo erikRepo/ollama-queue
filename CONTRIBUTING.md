@@ -72,7 +72,7 @@ All settings can be set via environment variables or in `.env`:
 | Variable | Default | Description |
 |---|---|---|
 | `HOST` | `0.0.0.0` | Bind address |
-| `PORT` | `8080` | Bind port |
+| `PORT` | `11430` | Bind port |
 | `DATABASE_URL` | `sqlite:///./ollama_queue.db` | SQLite file path |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama base URL |
 | `OLLAMA_TIMEOUT` | `300` | Seconds to wait for an Ollama response |

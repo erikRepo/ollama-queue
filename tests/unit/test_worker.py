@@ -486,3 +486,67 @@ class TestCallOllamaSync:
 
         payload = json.loads(captured[0].data.decode())
         assert "format" not in payload
+
+
+class TestDrainConcurrency:
+    def test_concurrency_one_is_sequential(self) -> None:
+        """With ollama_concurrency=1 only one _process_job runs at a time."""
+        settings = _settings(wol_mac_address="", ollama_concurrency=1)
+        conn = MagicMock()
+        jobs = [_job(id=f"job-{i}") for i in range(3)]
+        active = [0]
+        max_active = [0]
+
+        async def slow_process(s, c, j):
+            active[0] += 1
+            max_active[0] = max(max_active[0], active[0])
+            await asyncio.sleep(0)
+            active[0] -= 1
+
+        with (
+            patch("server.worker.queue.list_pending", return_value=jobs),
+            patch("server.worker._process_job", new=slow_process),
+        ):
+            asyncio.run(worker._drain(settings, conn))
+
+        assert max_active[0] == 1
+
+    def test_concurrency_two_allows_parallel_jobs(self) -> None:
+        """With ollama_concurrency=2 up to two _process_job calls run concurrently."""
+        settings = _settings(wol_mac_address="", ollama_concurrency=2)
+        conn = MagicMock()
+        jobs = [_job(id=f"job-{i}") for i in range(3)]
+        active = [0]
+        max_active = [0]
+
+        async def slow_process(s, c, j):
+            active[0] += 1
+            max_active[0] = max(max_active[0], active[0])
+            await asyncio.sleep(0)
+            active[0] -= 1
+
+        with (
+            patch("server.worker.queue.list_pending", return_value=jobs),
+            patch("server.worker._process_job", new=slow_process),
+        ):
+            asyncio.run(worker._drain(settings, conn))
+
+        assert max_active[0] == 2
+
+    def test_all_jobs_processed_regardless_of_concurrency(self) -> None:
+        """Every pending job is processed exactly once."""
+        settings = _settings(wol_mac_address="", ollama_concurrency=2)
+        conn = MagicMock()
+        jobs = [_job(id=f"job-{i}") for i in range(4)]
+        processed: list[str] = []
+
+        async def record_process(s, c, j):
+            processed.append(j.id)
+
+        with (
+            patch("server.worker.queue.list_pending", return_value=jobs),
+            patch("server.worker._process_job", new=record_process),
+        ):
+            asyncio.run(worker._drain(settings, conn))
+
+        assert sorted(processed) == [f"job-{i}" for i in range(4)]

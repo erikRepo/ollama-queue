@@ -176,7 +176,7 @@ pip install ollama-queue-client
 ```python
 from ollama_queue import OllamaQueueClient
 
-client = OllamaQueueClient("http://raspberrypi:3000")
+client = OllamaQueueClient("http://raspberrypi:11430")
 
 result = client.generate(
     model="llama3.1",

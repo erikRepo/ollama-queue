@@ -74,8 +74,13 @@ async def _drain(settings: Settings, conn: Connection) -> None:
             _apply_wol_failure(settings, conn, jobs)
             return
 
-    for job in jobs:
-        await _process_job(settings, conn, job)
+    semaphore = asyncio.Semaphore(settings.ollama_concurrency)
+
+    async def _run(job: JobResponse) -> None:
+        async with semaphore:
+            await _process_job(settings, conn, job)
+
+    await asyncio.gather(*[_run(job) for job in jobs])
 
 
 def _apply_wol_failure(
