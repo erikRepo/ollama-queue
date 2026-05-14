@@ -7,7 +7,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION: int = 2
+CURRENT_VERSION: int = 3
 
 
 def get_db_path(database_url: str) -> Path:
@@ -57,6 +57,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.commit()
         logger.info("Applied database migration to version 2")
 
+    if version < 3:
+        _v3(conn)
+        conn.execute("PRAGMA user_version = 3")
+        conn.commit()
+        logger.info("Applied database migration to version 3")
+
 
 def _v1(conn: sqlite3.Connection) -> None:
     """Initial schema: jobs table and status index."""
@@ -82,6 +88,41 @@ def _v2(conn: sqlite3.Connection) -> None:
     """Migration v2: add priority column (default 'low') to jobs table."""
     conn.execute("ALTER TABLE jobs ADD COLUMN priority TEXT NOT NULL DEFAULT 'low'")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_priority ON jobs (priority)")
+
+
+def _v3(conn: sqlite3.Connection) -> None:
+    """Migration v3: replace prompt with messages JSON; add format and callback_url."""
+    conn.execute(
+        """
+        CREATE TABLE jobs_new (
+            id           TEXT PRIMARY KEY,
+            status       TEXT NOT NULL DEFAULT 'pending',
+            priority     TEXT NOT NULL DEFAULT 'low',
+            model        TEXT NOT NULL,
+            messages     TEXT NOT NULL DEFAULT '[]',
+            format       TEXT,
+            callback_url TEXT,
+            response     TEXT,
+            error        TEXT,
+            retry_count  INTEGER NOT NULL DEFAULT 0,
+            created_at   TEXT NOT NULL,
+            updated_at   TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO jobs_new
+            SELECT id, status, priority, model,
+                   json_array(json_object('role', 'user', 'content', prompt)),
+                   NULL, NULL, response, error, retry_count, created_at, updated_at
+            FROM jobs
+        """
+    )
+    conn.execute("DROP TABLE jobs")
+    conn.execute("ALTER TABLE jobs_new RENAME TO jobs")
+    conn.execute("CREATE INDEX idx_jobs_status   ON jobs (status)")
+    conn.execute("CREATE INDEX idx_jobs_priority ON jobs (priority)")
 
 
 def get_db() -> Generator[sqlite3.Connection, None, None]:

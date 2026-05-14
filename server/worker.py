@@ -81,8 +81,7 @@ async def _drain(settings: Settings, conn: Connection) -> None:
 def _apply_wol_failure(
     settings: Settings, conn: Connection, jobs: list[JobResponse]
 ) -> None:
-    """Increment retry_count for each pending job after a WoL/Ollama-readiness timeout.
-    """
+    """Increment retry_count for each pending job after a WoL/Ollama timeout."""
     for job in jobs:
         new_retry = job.retry_count + 1
         if new_retry >= settings.worker_max_retries:
@@ -133,11 +132,11 @@ async def _wait_for_ollama(settings: Settings) -> bool:
 
 
 async def _process_job(settings: Settings, conn: Connection, job: JobResponse) -> None:
-    """Mark job PROCESSING, call Ollama, then set COMPLETED or requeue/fail."""
+    """Mark job PROCESSING, call Ollama /api/chat, then set READY or requeue/fail."""
     queue.update_status(conn, job.id, JobStatus.PROCESSING)
     try:
-        response_text = await _call_ollama(settings, job.model, job.prompt)
-        queue.update_status(conn, job.id, JobStatus.COMPLETED, response=response_text)
+        response_text = await _call_ollama(settings, job)
+        queue.update_status(conn, job.id, JobStatus.READY, response=response_text)
     except Exception as exc:
         new_retry = job.retry_count + 1
         if new_retry >= settings.worker_max_retries:
@@ -165,24 +164,31 @@ async def _process_job(settings: Settings, conn: Connection, job: JobResponse) -
             )
 
 
-async def _call_ollama(settings: Settings, model: str, prompt: str) -> str:
-    """Call Ollama /api/generate (non-streaming) in a thread executor."""
+async def _call_ollama(settings: Settings, job: JobResponse) -> str:
+    """Call Ollama /api/chat (non-streaming) in a thread executor."""
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _call_ollama_sync, settings, model, prompt)
+    return await loop.run_in_executor(None, _call_ollama_sync, settings, job)
 
 
-def _call_ollama_sync(settings: Settings, model: str, prompt: str) -> str:
-    """Blocking Ollama /api/generate call; raises RuntimeError on HTTP/network failure.
-    """
-    url = f"{settings.ollama_host}/api/generate"
-    payload = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
+def _call_ollama_sync(settings: Settings, job: JobResponse) -> str:
+    """Blocking Ollama /api/chat call; raises RuntimeError on HTTP/network failure."""
+    url = f"{settings.ollama_host}/api/chat"
+    payload: dict = {
+        "model": job.model,
+        "messages": [m.model_dump() for m in job.messages],
+        "stream": False,
+    }
+    if job.format:
+        payload["format"] = job.format
     req = urllib.request.Request(
-        url, data=payload, headers={"Content-Type": "application/json"}
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(req, timeout=settings.ollama_timeout) as resp:
             data = json.loads(resp.read().decode())
-            return data["response"]
+            return data["message"]["content"]
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"Ollama HTTP {exc.code}: {exc.reason}") from exc
     except urllib.error.URLError as exc:

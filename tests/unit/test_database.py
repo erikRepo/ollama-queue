@@ -1,11 +1,12 @@
 """Unit tests for server.database — all use in-memory SQLite."""
 
+import json
 import sqlite3
 from pathlib import Path
 
 import pytest
 
-from server.database import CURRENT_VERSION, _migrate, get_db_path
+from server.database import CURRENT_VERSION, _migrate, _v1, _v2, _v3, get_db_path
 
 # ---------------------------------------------------------------------------
 # get_db_path
@@ -72,7 +73,9 @@ class TestMigrate:
             "status",
             "priority",
             "model",
-            "prompt",
+            "messages",
+            "format",
+            "callback_url",
             "response",
             "error",
             "retry_count",
@@ -83,6 +86,13 @@ class TestMigrate:
         _migrate(conn)
         cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
         assert cols == expected
+        conn.close()
+
+    def test_prompt_column_removed(self) -> None:
+        conn = _mem()
+        _migrate(conn)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+        assert "prompt" not in cols
         conn.close()
 
     def test_status_index_exists(self) -> None:
@@ -99,8 +109,9 @@ class TestMigrate:
         conn = _mem()
         _migrate(conn)
         conn.execute(
-            "INSERT INTO jobs (id, model, prompt, created_at, updated_at)"
-            " VALUES ('1', 'llama3', 'hello', '2026-01-01', '2026-01-01')"
+            "INSERT INTO jobs (id, model, messages, created_at, updated_at)"
+            " VALUES ('1', 'llama3', ?, '2026-01-01', '2026-01-01')",
+            (json.dumps([{"role": "user", "content": "hello"}]),),
         )
         row = conn.execute("SELECT status FROM jobs WHERE id='1'").fetchone()
         assert row["status"] == "pending"
@@ -110,9 +121,46 @@ class TestMigrate:
         conn = _mem()
         _migrate(conn)
         conn.execute(
-            "INSERT INTO jobs (id, model, prompt, created_at, updated_at)"
-            " VALUES ('2', 'llama3', 'hello', '2026-01-01', '2026-01-01')"
+            "INSERT INTO jobs (id, model, messages, created_at, updated_at)"
+            " VALUES ('2', 'llama3', ?, '2026-01-01', '2026-01-01')",
+            (json.dumps([{"role": "user", "content": "hello"}]),),
         )
         row = conn.execute("SELECT retry_count FROM jobs WHERE id='2'").fetchone()
         assert row["retry_count"] == 0
+        conn.close()
+
+    def test_v3_migrates_prompt_to_messages(self) -> None:
+        """v1+v2 data with prompt column is migrated to messages JSON array in v3."""
+        conn = _mem()
+        _v1(conn)
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
+        _v2(conn)
+        conn.execute("PRAGMA user_version = 2")
+        conn.commit()
+
+        conn.execute(
+            "INSERT INTO jobs"
+            " (id, status, priority, model, prompt, created_at, updated_at)"
+            " VALUES"
+            " ('old-1', 'pending', 'low', 'llama3', 'hello world',"
+            "  '2026-01-01', '2026-01-01')"
+        )
+        conn.commit()
+
+        _v3(conn)
+        conn.execute("PRAGMA user_version = 3")
+        conn.commit()
+
+        row = conn.execute("SELECT messages FROM jobs WHERE id='old-1'").fetchone()
+        msgs = json.loads(row["messages"])
+        assert msgs == [{"role": "user", "content": "hello world"}]
+        conn.close()
+
+    def test_v3_adds_format_and_callback_url_columns(self) -> None:
+        conn = _mem()
+        _migrate(conn)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+        assert "format" in cols
+        assert "callback_url" in cols
         conn.close()

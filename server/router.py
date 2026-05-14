@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 import server.queue as queue_ops
 from server.database import get_db
-from server.models import JobPriority, JobRequest, JobResponse
+from server.models import JobPriority, JobRequest, JobResponse, JobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,9 @@ def get_status(
 ) -> JobResponse:
     """Return the current state of a job by its ID.
 
+    When the job is READY, marks it CLOSED in the DB but returns it with the
+    original READY status so the client sees "your result is available".
+
     Args:
         job_id: UUID of the target job.
         conn: Active SQLite connection.
@@ -48,4 +51,6 @@ def get_status(
     job = queue_ops.get_by_id(conn, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+    if job.status == JobStatus.READY:
+        queue_ops.update_status(conn, job_id, JobStatus.CLOSED)
     return job

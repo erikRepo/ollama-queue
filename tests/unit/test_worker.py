@@ -9,7 +9,7 @@ import pytest
 
 from server import worker
 from server.config import Settings
-from server.models import JobPriority, JobResponse, JobStatus
+from server.models import JobPriority, JobResponse, JobStatus, Message
 
 
 def _settings(**overrides) -> Settings:
@@ -19,6 +19,7 @@ def _settings(**overrides) -> Settings:
         database_url="sqlite:///./test.db",
         ollama_host="http://localhost:11434",
         ollama_timeout=30,
+        ollama_concurrency=1,
         worker_batch_interval=2.0,
         worker_wol_timeout=300,
         worker_max_retries=3,
@@ -37,7 +38,9 @@ def _job(**overrides) -> JobResponse:
         status=JobStatus.PENDING,
         priority=JobPriority.LOW,
         model="llama3",
-        prompt="Hello, world!",
+        messages=[Message(role="user", content="Hello, world!")],
+        format=None,
+        callback_url=None,
         response=None,
         error=None,
         retry_count=0,
@@ -97,7 +100,6 @@ class TestRunWorker:
         event_state_during_drain: list[bool] = []
 
         async def fake_drain(s, c):
-            # capture event state inside the drain call
             event_state_during_drain.append(False)  # event should be cleared
             raise asyncio.CancelledError()
 
@@ -111,7 +113,6 @@ class TestRunWorker:
         with pytest.raises(asyncio.CancelledError):
             asyncio.run(run())
 
-        # drain was called once (event triggered)
         assert len(event_state_during_drain) == 1
 
     def test_cancellation_stops_cleanly(self) -> None:
@@ -335,9 +336,7 @@ class TestProcessJob:
 
         calls = mock_update.call_args_list
         assert calls[0] == call(conn, job.id, JobStatus.PROCESSING)
-        assert calls[1] == call(
-            conn, job.id, JobStatus.COMPLETED, response="AI response"
-        )
+        assert calls[1] == call(conn, job.id, JobStatus.READY, response="AI response")
 
     def test_failure_within_retries_requeues_with_incremented_count(self) -> None:
         settings = _settings(worker_max_retries=3)
@@ -379,7 +378,9 @@ class TestProcessJob:
 class TestCallOllamaSync:
     def test_success_returns_response_text(self) -> None:
         settings = _settings()
-        body = json.dumps({"response": "AI text here"}).encode()
+        body = json.dumps(
+            {"message": {"role": "assistant", "content": "AI text here"}}
+        ).encode()
 
         mock_resp = MagicMock()
         mock_resp.read.return_value = body
@@ -388,7 +389,7 @@ class TestCallOllamaSync:
             mock_open.return_value.__enter__.return_value = mock_resp
             mock_open.return_value.__exit__.return_value = False
 
-            result = worker._call_ollama_sync(settings, "llama3", "hello")
+            result = worker._call_ollama_sync(settings, _job())
 
         assert result == "AI text here"
 
@@ -406,7 +407,7 @@ class TestCallOllamaSync:
             ),
         ):
             with pytest.raises(RuntimeError, match="Ollama HTTP 500"):
-                worker._call_ollama_sync(settings, "llama3", "hello")
+                worker._call_ollama_sync(settings, _job())
 
     def test_url_error_raises_runtime_error(self) -> None:
         settings = _settings()
@@ -416,11 +417,11 @@ class TestCallOllamaSync:
             side_effect=urllib.error.URLError("Connection refused"),
         ):
             with pytest.raises(RuntimeError, match="Ollama unreachable"):
-                worker._call_ollama_sync(settings, "llama3", "hello")
+                worker._call_ollama_sync(settings, _job())
 
     def test_request_sends_correct_payload(self) -> None:
         settings = _settings(ollama_host="http://ollama:11434")
-        body = json.dumps({"response": "ok"}).encode()
+        body = json.dumps({"message": {"role": "assistant", "content": "ok"}}).encode()
 
         captured: list[urllib.request.Request] = []
 
@@ -432,11 +433,56 @@ class TestCallOllamaSync:
             mock_resp.__exit__ = MagicMock(return_value=False)
             return mock_resp
 
+        job = _job(messages=[Message(role="user", content="hi there")])
         with patch("urllib.request.urlopen", side_effect=fake_urlopen):
-            worker._call_ollama_sync(settings, "llama3", "hi there")
+            worker._call_ollama_sync(settings, job)
 
         assert len(captured) == 1
         req = captured[0]
-        assert req.full_url == "http://ollama:11434/api/generate"
+        assert req.full_url == "http://ollama:11434/api/chat"
         payload = json.loads(req.data.decode())
-        assert payload == {"model": "llama3", "prompt": "hi there", "stream": False}
+        assert payload["model"] == "llama3"
+        assert payload["messages"] == [{"role": "user", "content": "hi there"}]
+        assert payload["stream"] is False
+
+    def test_format_included_in_payload_when_set(self) -> None:
+        settings = _settings(ollama_host="http://ollama:11434")
+        body = json.dumps({"message": {"role": "assistant", "content": "ok"}}).encode()
+
+        captured: list[urllib.request.Request] = []
+
+        def fake_urlopen(req: urllib.request.Request, timeout: int):
+            captured.append(req)
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = body
+            mock_resp.__enter__ = lambda s: mock_resp
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            return mock_resp
+
+        job = _job(format="json")
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            worker._call_ollama_sync(settings, job)
+
+        payload = json.loads(captured[0].data.decode())
+        assert payload.get("format") == "json"
+
+    def test_format_omitted_when_none(self) -> None:
+        settings = _settings(ollama_host="http://ollama:11434")
+        body = json.dumps({"message": {"role": "assistant", "content": "ok"}}).encode()
+
+        captured: list[urllib.request.Request] = []
+
+        def fake_urlopen(req: urllib.request.Request, timeout: int):
+            captured.append(req)
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = body
+            mock_resp.__enter__ = lambda s: mock_resp
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            return mock_resp
+
+        job = _job(format=None)
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            worker._call_ollama_sync(settings, job)
+
+        payload = json.loads(captured[0].data.decode())
+        assert "format" not in payload

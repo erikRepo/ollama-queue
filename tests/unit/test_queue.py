@@ -3,7 +3,7 @@
 import sqlite3
 
 from server.database import _migrate
-from server.models import JobPriority, JobRequest, JobResponse, JobStatus
+from server.models import JobPriority, JobRequest, JobResponse, JobStatus, Message
 from server.queue import get_by_id, insert, list_pending, update_status
 
 
@@ -15,9 +15,18 @@ def _mem() -> sqlite3.Connection:
     return conn
 
 
-_REQUEST = JobRequest(model="llama3", prompt="hello")
-_HIGH = JobRequest(model="llama3", prompt="urgent", priority=JobPriority.HIGH)
-_LOW = JobRequest(model="llama3", prompt="batch", priority=JobPriority.LOW)
+def _request(**overrides) -> JobRequest:
+    base: dict = dict(
+        model="llama3",
+        messages=[{"role": "user", "content": "hello"}],
+    )
+    base.update(overrides)
+    return JobRequest(**base)
+
+
+_REQUEST = _request()
+_HIGH = _request(priority=JobPriority.HIGH)
+_LOW = _request(priority=JobPriority.LOW)
 
 
 # ---------------------------------------------------------------------------
@@ -38,11 +47,51 @@ class TestInsert:
         assert job.status == JobStatus.PENDING
         conn.close()
 
-    def test_model_and_prompt_match_request(self) -> None:
+    def test_model_matches_request(self) -> None:
         conn = _mem()
         job = insert(conn, _REQUEST)
         assert job.model == _REQUEST.model
-        assert job.prompt == _REQUEST.prompt
+        conn.close()
+
+    def test_messages_serialized_and_deserialized(self) -> None:
+        conn = _mem()
+        req = _request(
+            messages=[
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "hi"},
+            ]
+        )
+        job = insert(conn, req)
+        assert len(job.messages) == 2
+        assert isinstance(job.messages[0], Message)
+        assert job.messages[0].role == "system"
+        assert job.messages[1].content == "hi"
+        conn.close()
+
+    def test_format_stored(self) -> None:
+        conn = _mem()
+        req = _request(format="json")
+        job = insert(conn, req)
+        assert job.format == "json"
+        conn.close()
+
+    def test_callback_url_stored(self) -> None:
+        conn = _mem()
+        req = _request(callback_url="http://cb.example.com")
+        job = insert(conn, req)
+        assert job.callback_url == "http://cb.example.com"
+        conn.close()
+
+    def test_format_none_by_default(self) -> None:
+        conn = _mem()
+        job = insert(conn, _REQUEST)
+        assert job.format is None
+        conn.close()
+
+    def test_callback_url_none_by_default(self) -> None:
+        conn = _mem()
+        job = insert(conn, _REQUEST)
+        assert job.callback_url is None
         conn.close()
 
     def test_response_and_error_are_none(self) -> None:
@@ -105,7 +154,7 @@ class TestGetById:
         assert fetched is not None
         assert fetched.id == job.id
         assert fetched.model == job.model
-        assert fetched.prompt == job.prompt
+        assert fetched.messages[0].content == job.messages[0].content
         conn.close()
 
     def test_returns_none_for_unknown_id(self) -> None:
@@ -181,7 +230,7 @@ class TestUpdateStatus:
     def test_sets_response(self) -> None:
         conn = _mem()
         job = insert(conn, _REQUEST)
-        updated = update_status(conn, job.id, JobStatus.COMPLETED, response="done")
+        updated = update_status(conn, job.id, JobStatus.READY, response="done")
         assert updated is not None
         assert updated.response == "done"
         conn.close()
@@ -219,9 +268,9 @@ class TestUpdateStatus:
     def test_persisted_to_db(self) -> None:
         conn = _mem()
         job = insert(conn, _REQUEST)
-        update_status(conn, job.id, JobStatus.COMPLETED, response="ok")
+        update_status(conn, job.id, JobStatus.READY, response="ok")
         fetched = get_by_id(conn, job.id)
         assert fetched is not None
-        assert fetched.status == JobStatus.COMPLETED
+        assert fetched.status == JobStatus.READY
         assert fetched.response == "ok"
         conn.close()

@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.0.0] - 2026-05-14
+
+### Breaking Changes
+- `JobRequest`: `prompt: str` replaced by `messages: list[Message]` (must contain at least one message); also added `format: str | None` and `callback_url: str | None`
+- `JobResponse`: `prompt` removed; `messages`, `format`, `callback_url` added
+- `JobStatus.COMPLETED` removed; replaced by `READY` (result stored, not yet delivered) and `CLOSED` (client received result)
+- `GET /api/status/{id}`: when job is `READY`, returns it with `status="ready"` and atomically transitions DB record to `CLOSED`; subsequent polls return `status="closed"` with `response` still present
+- Worker now calls `POST /api/chat` (not `/api/generate`); response parsed from `data["message"]["content"]`
+
+### Added
+- `Message` Pydantic model (`role`, `content`) in `server/models.py`
+- DB migration v3: recreates `jobs` table replacing `prompt TEXT` with `messages TEXT` (JSON array), `format TEXT`, `callback_url TEXT`; migrates existing rows by wrapping `prompt` as `[{"role": "user", "content": prompt}]`
+- `ollama_concurrency` setting (default 1, validated ≥ 1); `asyncio.Semaphore` enforcement planned for later
+- New unit tests: `Message` model, empty-messages validation, `READY`/`CLOSED` statuses, `format`/`callback_url` round-trip, `/api/chat` payload shape, `format` included/omitted correctly, v3 migration, `ready→closed` GET transition
+
+### Changed
+- Worker sets `READY` (was `COMPLETED`) after successful Ollama call
+- `README.md`: request body updated to `messages` format, response body to full job object, HTTP 202 → 201, lifecycle table updated, "SQLite (via SQLAlchemy)" → "SQLite (stdlib `sqlite3`)", `OLLAMA_CONCURRENCY` added to config reference, client `generate()` docstring updated
+
 ## [0.11.0] - 2026-05-14
 
 ### Changed

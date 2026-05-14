@@ -10,7 +10,8 @@ class JobStatus(StrEnum):
 
     PENDING = "pending"
     PROCESSING = "processing"
-    COMPLETED = "completed"
+    READY = "ready"
+    CLOSED = "closed"
     FAILED = "failed"
 
 
@@ -21,19 +22,36 @@ class JobPriority(StrEnum):
     LOW = "low"
 
 
+class Message(BaseModel):
+    """A single chat message sent to Ollama."""
+
+    role: str
+    content: str
+
+
 class JobRequest(BaseModel):
     """Body for POST /api/queue."""
 
     model: str
-    prompt: str
+    messages: list[Message]
     priority: JobPriority = JobPriority.LOW
+    format: str | None = None
+    callback_url: str | None = None
 
-    @field_validator("model", "prompt")
+    @field_validator("model")
     @classmethod
-    def not_blank(cls, v: str) -> str:
-        """Reject empty or whitespace-only strings."""
+    def model_not_blank(cls, v: str) -> str:
+        """Reject empty or whitespace-only model name."""
         if not v.strip():
             raise ValueError("must not be blank")
+        return v
+
+    @field_validator("messages")
+    @classmethod
+    def messages_not_empty(cls, v: list[Message]) -> list[Message]:
+        """Require at least one message."""
+        if not v:
+            raise ValueError("must contain at least one message")
         return v
 
 
@@ -44,7 +62,9 @@ class JobResponse(BaseModel):
     status: JobStatus
     priority: JobPriority
     model: str
-    prompt: str
+    messages: list[Message]
+    format: str | None
+    callback_url: str | None
     response: str | None
     error: str | None
     retry_count: int

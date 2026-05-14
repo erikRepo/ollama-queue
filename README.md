@@ -42,39 +42,60 @@ flowchart TD
 **Request Body:**
 ```json
 {
-  "prompt": "Analyze this urgent server log...",
   "model": "llama3.1",
-  "priority": "high", 
-  "callback_url": "myclient.internal"
+  "messages": [
+    {"role": "system", "content": "You are a trading analyst. Respond in JSON."},
+    {"role": "user",   "content": "BTC price is 42000, position is LONG..."}
+  ],
+  "priority": "low",
+  "format": "json",
+  "callback_url": null
 }
 ```
 
-**Response (Instant 202 Accepted):**
+**Response (201 Created):**
 ```json
 {
-  "job_id": "8f3b9c2a-1234-4567-abcd-ef7412589630",
-  "status": "queued",
-  "priority": "high",
-  "estimated_delivery": "Depends on server wake up time"
+  "id": "8f3b9c2a-1234-4567-abcd-ef7412589630",
+  "status": "pending",
+  "priority": "low",
+  "model": "llama3.1",
+  "messages": [...],
+  "format": "json",
+  "callback_url": null,
+  "response": null,
+  "error": null,
+  "retry_count": 0,
+  "created_at": "2026-05-14T10:00:00+00:00",
+  "updated_at": "2026-05-14T10:00:00+00:00"
 }
 ```
 
 ### 2. Poll Status (Alternative Return Channel)
 `GET /api/status/:job_id`
 
-**Response (While processing/queued):**
+**Response (While pending or processing):**
 ```json
 {
-  "job_id": "8f3b9c2a-1234-4567-abcd-ef7412589630",
-  "status": "processing"
+  "id": "8f3b9c2a-1234-4567-abcd-ef7412589630",
+  "status": "pending"
 }
 ```
 
-**Response (When finished):**
+**Response (When result is ready — first poll):**
 ```json
 {
-  "job_id": "8f3b9c2a-1234-4567-abcd-ef7412589630",
-  "status": "completed",
+  "id": "8f3b9c2a-1234-4567-abcd-ef7412589630",
+  "status": "ready",
+  "response": "Here is the completed AI analysis..."
+}
+```
+
+**Response (Subsequent polls after result delivered):**
+```json
+{
+  "id": "8f3b9c2a-1234-4567-abcd-ef7412589630",
+  "status": "closed",
   "response": "Here is the completed AI analysis..."
 }
 ```
@@ -84,7 +105,7 @@ flowchart TD
 ### Technology Stack
 - **Language:** Python 3
 - **API framework:** FastAPI
-- **Queue storage:** SQLite (via SQLAlchemy)
+- **Queue storage:** SQLite (stdlib `sqlite3`)
 - **Concurrency:** Multithreaded — API thread accepts requests instantly, worker thread drains the queue
 
 ### Priority Levels
@@ -95,12 +116,13 @@ flowchart TD
 
 ### Job Lifecycle
 ```
-queued → processing → ready → closed
-                    ↘ failed
+pending → processing → ready → closed
+                             ↘ (webhook delivered)
+                     ↘ failed
 ```
 | Status | Meaning |
 |--------|---------|
-| `queued` | Job accepted, waiting to be processed |
+| `pending` | Job accepted, waiting to be processed |
 | `processing` | GPU workstation is awake, Ollama is generating |
 | `ready` | Result stored in DB, not yet delivered to client |
 | `closed` | Client has received the result (polled or webhook delivered) |
@@ -171,7 +193,7 @@ result = client.generate(
 print(result)  # string — JSON or plain text depending on 'format'
 ```
 
-`generate()` blocks until the job status is `ready` and returns the LLM response as a string. Raises `TimeoutError` if the job does not complete within `timeout` seconds.
+`generate()` blocks until the job status is `ready` or `closed` and returns the LLM response as a string. Raises `TimeoutError` if the job does not complete within `timeout` seconds.
 
 ### Notes
 - No threading — one blocking call per `generate()` invocation

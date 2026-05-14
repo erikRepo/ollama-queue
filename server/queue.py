@@ -1,11 +1,12 @@
 """Job CRUD operations against the SQLite jobs table."""
 
+import json
 import logging
 import sqlite3
 import uuid
 from datetime import UTC, datetime
 
-from server.models import JobPriority, JobRequest, JobResponse, JobStatus
+from server.models import JobPriority, JobRequest, JobResponse, JobStatus, Message
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,9 @@ def _row_to_job(row: sqlite3.Row) -> JobResponse:
         status=JobStatus(row["status"]),
         priority=JobPriority(row["priority"]),
         model=row["model"],
-        prompt=row["prompt"],
+        messages=[Message(**m) for m in json.loads(row["messages"])],
+        format=row["format"],
+        callback_url=row["callback_url"],
         response=row["response"],
         error=row["error"],
         retry_count=row["retry_count"],
@@ -36,25 +39,28 @@ def insert(conn: sqlite3.Connection, request: JobRequest) -> JobResponse:
 
     Args:
         conn: Active SQLite connection with the jobs schema applied.
-        request: Validated job request containing model and prompt.
+        request: Validated job request containing model and messages.
 
     Returns:
         The newly created JobResponse with status PENDING.
     """
     job_id = str(uuid.uuid4())
     now = _now()
+    messages_json = json.dumps([m.model_dump() for m in request.messages])
     conn.execute(
         """
-        INSERT INTO jobs (id, status, priority, model, prompt, response, error,
-                          retry_count, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, NULL, NULL, 0, ?, ?)
+        INSERT INTO jobs (id, status, priority, model, messages, format, callback_url,
+                          response, error, retry_count, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, ?, ?)
         """,
         (
             job_id,
             JobStatus.PENDING,
             request.priority,
             request.model,
-            request.prompt,
+            messages_json,
+            request.format,
+            request.callback_url,
             now,
             now,
         ),
@@ -80,13 +86,13 @@ def get_by_id(conn: sqlite3.Connection, job_id: str) -> JobResponse | None:
 
 
 def list_pending(conn: sqlite3.Connection) -> list[JobResponse]:
-    """Return all jobs with status PENDING, ordered by creation time ascending.
+    """Return all jobs with status PENDING, ordered by priority then creation time.
 
     Args:
         conn: Active SQLite connection.
 
     Returns:
-        List of pending JobResponse objects, oldest first.
+        List of pending JobResponse objects, high-priority first then oldest first.
     """
     rows = conn.execute(
         """
@@ -113,7 +119,7 @@ def update_status(
         conn: Active SQLite connection.
         job_id: UUID string of the target job.
         status: New JobStatus value.
-        response: Ollama response text to store (COMPLETED jobs).
+        response: Ollama response text to store (READY jobs).
         error: Error message to store (FAILED jobs).
         retry_count: New retry count (overrides existing value when provided).
 
