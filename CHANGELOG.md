@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0] - 2026-05-14
+
+### Added
+- `server/models.py`: `JobStatus(StrEnum)` with four states (`pending`, `processing`, `completed`, `failed`); `JobRequest` Pydantic model (model + prompt, blank-rejection validation); `JobResponse` Pydantic model matching the full `jobs` table schema
+- `pyproject.toml`: added `pydantic>=2` runtime dependency
+- `tests/unit/test_models.py`: 13 unit tests covering enum values, string coercion, required fields, blank/whitespace rejection, and valid/invalid response construction
+
 ## [0.3.0] - 2026-05-14
 
 ### Added

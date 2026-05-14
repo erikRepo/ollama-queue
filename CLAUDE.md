@@ -14,7 +14,7 @@ Each item below is one session. After completing an item, in this exact order:
 - [x] 1. Project scaffolding — `pyproject.toml` (version starts at `0.1.0`), `CHANGELOG.md`, `.env.example`, directory skeleton, `ruff` config
 - [x] 2. `config.py` — load all settings from env/`.env` with defaults and validation
 - [x] 3. `database.py` — SQLite connection, schema creation, migration on startup
-- [ ] 4. `models.py` — Pydantic request/response models and job status enum
+- [x] 4. `models.py` — Pydantic request/response models and job status enum
 - [ ] 5. `queue.py` — Job CRUD: insert, get by id, list pending, update status
 - [ ] 6. `POST /api/queue` endpoint + unit tests
 - [ ] 7. `GET /api/status/:id` endpoint + unit tests
