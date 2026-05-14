@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0] - 2026-05-14
+
+### Added
+- `client/ollama_queue/client.py`: `OllamaQueueClient` with a blocking `generate()` method
+- Webhook-based return channel: `generate()` binds a temporary `HTTPServer` on a random local port, passes it as `callback_url`, and blocks with `threading.Event.wait(timeout)` until the server pushes the result back — no polling loop
+- Local IP auto-detection via UDP connect trick so the callback URL is reachable from the server
+- `client/pyproject.toml`: standalone packaging as `ollama-queue-client` with zero external dependencies (stdlib only)
+
 ## [1.2.0] - 2026-05-14
 
 ### Added

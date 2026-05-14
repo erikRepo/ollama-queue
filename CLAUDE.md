@@ -26,7 +26,7 @@ Each item below is one session. After completing an item, in this exact order:
 - [x] 13. Webhook delivery — when a job completes and `callback_url` is set, `worker.py` sends `POST callback_url` with the `JobResponse` JSON body; retry on transient HTTP errors; unit tests for success, failure, and no-op when `callback_url` is null
 
 ### Client library
-- [ ] 14. `client/ollama_queue/client.py` — `OllamaQueueClient.generate()` blocking implementation
+- [x] 14. `client/ollama_queue/client.py` — `OllamaQueueClient.generate()` blocking implementation
 - [ ] 15. Client unit tests + e2e test against a locally running server
 
 ---
