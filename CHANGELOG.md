@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.8.0] - 2026-05-14
+
+### Added
+- `server/wol.py`: `build_magic_packet(mac)` — constructs a 102-byte WoL magic packet from a colon- or dash-separated MAC address; `send_wol(mac, broadcast, port)` — sends the packet via UDP broadcast, closing the socket in all cases
+- `tests/unit/test_wol.py`: 11 unit tests covering packet structure, MAC format variants, invalid MAC rejection, socket options, target address, and socket cleanup on both success and error
+
 ## [0.7.0] - 2026-05-14
 
 ### Added
